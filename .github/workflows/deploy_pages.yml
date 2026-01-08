@@ -1,50 +1,33 @@
-name: Build and deploy to GitHub Pages
+name: Deploy React App
 
 on:
   push:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches:
+      - main  # Set this to your default branch name
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout 🛎️
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js ⚙️
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: 20  # Use the latest LTS version for 2026
           cache: 'npm'
 
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build --if-present
-
-      - name: Determine publish directory
-        id: set-publish-dir
+      - name: Install and Build 🔧
         run: |
-          if [ -d ./build ]; then echo "publish_dir=build" >> $GITHUB_OUTPUT
-          elif [ -d ./dist ]; then echo "publish_dir=dist" >> $GITHUB_OUTPUT
-          else
-            echo "No build output directory found. Expected ./build or ./dist." >&2
-            exit 1
-          fi
-        shell: bash
+          npm ci
+          npm run build
 
-      - name: Upload artifact for GitHub Pages
-        # This is the Pages-specific uploader; it should not reference upload-artifact@v3 directly.
-        uses: actions/upload-pages-artifact@v1
+      - name: Deploy 🚀
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: ${{ steps.set-publish-dir.outputs.publish_dir }}
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
+          folder: build # Change to 'dist' if you are using Vite
+          branch: gh-pages
