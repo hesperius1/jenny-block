@@ -1,10 +1,12 @@
-# Build and deploy to GitHub Pages from a private repo.
-# For Create React App the publish directory is `build`
-# For Vite the publish directory is `dist`
+# Build and deploy to GitHub Pages from a private repo (CRA or Vite).
+# - Automatically detects build output folder: ./build (CRA) or ./dist (Vite)
+# - Supports manual runs via workflow_dispatch
 name: Build and deploy to GitHub Pages
+
 on:
   push:
     branches: [ "main" ]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -22,6 +24,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '18'
+          cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
@@ -34,7 +37,10 @@ jobs:
         run: |
           if [ -d ./build ]; then echo "publish_dir=build" >> $GITHUB_OUTPUT
           elif [ -d ./dist ]; then echo "publish_dir=dist" >> $GITHUB_OUTPUT
-          else echo "publish_dir=build" >> $GITHUB_OUTPUT
+          else
+            echo "No build output directory found. Expected ./build or ./dist." >&2
+            exit 1
+          fi
         shell: bash
 
       - name: Upload artifact for GitHub Pages
