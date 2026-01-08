@@ -4,11 +4,14 @@ import { getRandomShapes, GRID_SIZE } from './constants';
 import { Grid } from './components/Grid';
 import { PieceSelector } from './components/PieceSelector';
 import { BlockPiece } from './components/BlockPiece';
+import { LevelUpModal } from './components/LevelUpModal';
 import { BlockShape, GameState, DragState, Coordinate } from './types';
-import { Trophy, RotateCcw } from 'lucide-react';
+import { Trophy, RotateCcw, Coins, Star, Target, Timer as TimerIcon } from 'lucide-react';
 
-// Sound effects (dummy URLs or standard bleeps - using empty strings to disable for now, can implement WebAudio later)
-// Keeping it simple visual only.
+// Progression Constants
+const BASE_LEVEL_SCORE = 1000; // Level 1 Target
+const BASE_COIN_REWARD = 50;
+const TIME_EXPECTATION_PER_LEVEL = 45; // Seconds per level baseline
 
 const App: React.FC = () => {
   // Game State
@@ -20,6 +23,17 @@ const App: React.FC = () => {
   const [clearingRows, setClearingRows] = useState<number[]>([]);
   const [clearingCols, setClearingCols] = useState<number[]>([]);
 
+  // Persistent Economy
+  const [coins, setCoins] = useState(0);
+
+  // Session Progression (Resets on Game Over)
+  const [level, setLevel] = useState(1);
+  const [targetScore, setTargetScore] = useState(BASE_LEVEL_SCORE);
+  const [levelStartTime, setLevelStartTime] = useState(Date.now());
+  const [currentTime, setCurrentTime] = useState(0); // For display
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [levelRewards, setLevelRewards] = useState({ base: 0, time: 0, taken: 0 });
+
   // Drag State
   const [dragState, setDragState] = useState<DragState>({
     isDragging: false,
@@ -30,14 +44,19 @@ const App: React.FC = () => {
     validDrop: null,
   });
 
-  // Refs for board measurements
+  // Refs
   const boardRectRef = useRef<DOMRect | null>(null);
+  const timerRef = useRef<number | null>(null);
 
-  // Initialize Game
+  // --- Persistence ---
   useEffect(() => {
+    const storedHigh = localStorage.getItem('block-blast-highscore');
+    if (storedHigh) setHighScore(parseInt(storedHigh, 10));
+
+    const storedCoins = localStorage.getItem('block-blast-coins');
+    if (storedCoins) setCoins(parseInt(storedCoins, 10));
+
     startNewGame();
-    const stored = localStorage.getItem('block-blast-highscore');
-    if (stored) setHighScore(parseInt(stored, 10));
   }, []);
 
   useEffect(() => {
@@ -47,6 +66,26 @@ const App: React.FC = () => {
     }
   }, [score, highScore]);
 
+  useEffect(() => {
+    localStorage.setItem('block-blast-coins', coins.toString());
+  }, [coins]);
+
+  // --- Timer Logic ---
+  useEffect(() => {
+    if (!isGameOver && !showLevelUp) {
+        timerRef.current = window.setInterval(() => {
+            const now = Date.now();
+            setCurrentTime(Math.floor((now - levelStartTime) / 1000));
+        }, 1000);
+    }
+    return () => {
+        if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [levelStartTime, isGameOver, showLevelUp]);
+
+
+  // --- Game Loop ---
+
   const startNewGame = () => {
     setGrid(createEmptyGrid());
     setScore(0);
@@ -54,6 +93,20 @@ const App: React.FC = () => {
     setIsGameOver(false);
     setClearingRows([]);
     setClearingCols([]);
+    
+    // Reset Session Stats
+    setLevel(1);
+    setTargetScore(BASE_LEVEL_SCORE);
+    setLevelStartTime(Date.now());
+    setCurrentTime(0);
+  };
+
+  const getTargetForLevel = (lvl: number) => {
+      // Exponential scaling or Linear? Linear is easier to understand.
+      // Level 1: 1000
+      // Level 2: 2500 (+1500)
+      // Level 3: 4500 (+2000)
+      return Math.floor(BASE_LEVEL_SCORE * lvl + (lvl > 1 ? (lvl - 1) * 500 : 0));
   };
 
   const replenishPieces = useCallback((currentPieces: (BlockShape | null)[]) => {
@@ -62,29 +115,45 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // Check Game Over whenever grid or pieces change
+  const handleLevelClaim = () => {
+    setCoins(c => c + levelRewards.base + levelRewards.time);
+    setShowLevelUp(false);
+    
+    // Setup Next Level
+    const nextLevel = level + 1;
+    setLevel(nextLevel);
+    
+    // New target is Current Score + Delta required for next level
+    // This ensures the progress bar resets visually relative to the new gap
+    // But typically score is cumulative. 
+    // Let's keep Score Cumulative. Target Score simply increases.
+    const delta = BASE_LEVEL_SCORE + (nextLevel * 500); 
+    setTargetScore(s => s + delta);
+    
+    // Reset Timer
+    setLevelStartTime(Date.now());
+    setCurrentTime(0);
+  };
+
+  // Check Game Over
   useEffect(() => {
-    // We only check if we are NOT currently clearing lines (animation state) and NOT dragging
-    if (clearingRows.length === 0 && clearingCols.length === 0 && !dragState.isDragging && availablePieces.length > 0) {
-        // Small delay to let React state settle
+    if (clearingRows.length === 0 && clearingCols.length === 0 && !dragState.isDragging && availablePieces.length > 0 && !showLevelUp) {
         const timer = setTimeout(() => {
              const gameOver = checkGameOver(grid, availablePieces);
              if (gameOver) setIsGameOver(true);
         }, 100);
         return () => clearTimeout(timer);
     }
-  }, [grid, availablePieces, clearingRows.length, clearingCols.length, dragState.isDragging]);
+  }, [grid, availablePieces, clearingRows.length, clearingCols.length, dragState.isDragging, showLevelUp]);
 
 
   // --- Input Handling ---
 
   const handlePointerDown = (e: React.PointerEvent, index: number) => {
-    e.preventDefault(); // Stop default touch actions
+    e.preventDefault();
     const piece = availablePieces[index];
     if (!piece) return;
 
-    // Calculate offset to center the piece under finger/cursor
-    // Or slightly above for visibility (especially on mobile)
     const touchYOffset = -60; 
 
     setDragState({
@@ -96,51 +165,26 @@ const App: React.FC = () => {
       validDrop: null,
     });
 
-    // Capture pointer to handle moves outside the element
     (e.target as HTMLElement).setPointerCapture(e.pointerId);
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragState.isDragging || dragState.pieceIndex === null) return;
     
-    // Update current position
     const newCurrent = { x: e.clientX, y: e.clientY };
-    
-    // Calculate grid position
     let validDrop: Coordinate | null = null;
     
     if (boardRectRef.current) {
       const rect = boardRectRef.current;
       const piece = availablePieces[dragState.pieceIndex]!;
-      
-      // Calculate where the TOP-LEFT of the piece is, relative to screen
-      // We are dragging the 'center' or touch point. 
-      // We need to approximate which cell the top-left of the piece is hovering over.
-      
-      // To improve UX: We treat the pointer as the center of the piece roughly.
-      const pieceWidthPx = piece.matrix[0].length * 30; // approx
-      const pieceHeightPx = piece.matrix.length * 30;
+      const cellSize = rect.width / GRID_SIZE;
       
       const pointerX = e.clientX + dragState.pieceOffset.x;
       const pointerY = e.clientY + dragState.pieceOffset.y;
       
-      // Relative to board
       const relativeX = pointerX - rect.left;
       const relativeY = pointerY - rect.top;
       
-      const cellSize = rect.width / GRID_SIZE;
-      
-      // Center the piece on the pointer
-      const colFloat = (relativeX - (pieceWidthPx / 2) + (cellSize * 1.5)) / cellSize; 
-      const rowFloat = (relativeY - (pieceHeightPx / 2) + (cellSize * 1.5)) / cellSize;
-
-      // Simplification: Direct mapping from pointer to cell
-      // Let's assume the user is dragging the "center" of the shape.
-      // We want to find the top-left cell index.
-      const centerR = Math.floor(relativeY / cellSize);
-      const centerC = Math.floor(relativeX / cellSize);
-
-      // Adjust to find top-left based on shape dimensions
       const r = Math.round((relativeY / cellSize) - (piece.matrix.length / 2));
       const c = Math.round((relativeX / cellSize) - (piece.matrix[0].length / 2));
       
@@ -165,46 +209,58 @@ const App: React.FC = () => {
       // 1. Place Piece
       const newGrid = placePiece(grid, piece, dragState.validDrop.r, dragState.validDrop.c);
       
-      // 2. Calculate Score (Base score for placement)
-      const placementScore = piece.matrix.flat().filter(x => x === 1).length * 10;
-      
-      // 3. Remove piece from hand
+      // 2. Update pieces (Removed Placement Score calculation)
       const newPieces = [...availablePieces];
       newPieces[dragState.pieceIndex] = null;
       setAvailablePieces(newPieces);
 
-      // 4. Check Lines
+      // 3. Check Lines & Calculate Total Score
       const { rowsToClear, colsToClear } = checkLines(newGrid);
+      const linesCleared = rowsToClear.length + colsToClear.length;
       
-      if (rowsToClear.length > 0 || colsToClear.length > 0) {
-        // Handle clearing animation and logic
+      // Score only counts when lines are cleared
+      const totalMoveScore = linesCleared > 0 ? linesCleared * 100 * (linesCleared > 1 ? linesCleared : 1) : 0;
+
+      const newTotalScore = score + totalMoveScore;
+      setScore(newTotalScore);
+
+      // 4. Check Level Up
+      if (newTotalScore >= targetScore && !showLevelUp) {
+          // Calculate stats
+          const timeTaken = (Date.now() - levelStartTime) / 1000;
+          const expectedTime = TIME_EXPECTATION_PER_LEVEL + (level * 10);
+          
+          let bonus = 0;
+          if (timeTaken < expectedTime) {
+             const timeDiff = Math.max(0, expectedTime - timeTaken);
+             bonus = Math.floor(timeDiff * 2); // 2 coins per second saved
+          }
+
+          setLevelRewards({
+              base: BASE_COIN_REWARD + (level * 10),
+              time: bonus,
+              taken: timeTaken
+          });
+          setShowLevelUp(true);
+      }
+
+      // 5. Handle Grid Updates
+      if (linesCleared > 0) {
         setClearingRows(rowsToClear);
         setClearingCols(colsToClear);
-        
-        // Update Grid (temporarily full, animation plays via CSS on Board)
         setGrid(newGrid);
         
-        // Wait for animation then clear
         setTimeout(() => {
           const clearedGrid = clearLines(newGrid, rowsToClear, colsToClear);
           setGrid(clearedGrid);
           setClearingRows([]);
           setClearingCols([]);
-          
-          // Add clearing score
-          const linesCleared = rowsToClear.length + colsToClear.length;
-          // Simple combo formula
-          const clearScore = linesCleared * 100 * (linesCleared > 1 ? linesCleared : 1); 
-          setScore(s => s + placementScore + clearScore);
-
           replenishPieces(newPieces);
-        }, 400); // 400ms matches CSS transition
+        }, 400);
       } else {
         setGrid(newGrid);
-        setScore(s => s + placementScore);
         replenishPieces(newPieces);
       }
-      
     }
 
     setDragState({
@@ -217,7 +273,6 @@ const App: React.FC = () => {
     });
   };
 
-  // Helper for rendering the dragged piece following cursor
   const renderDragLayer = () => {
     if (!dragState.isDragging || dragState.pieceIndex === null) return null;
     const piece = availablePieces[dragState.pieceIndex]!;
@@ -228,13 +283,27 @@ const App: React.FC = () => {
         style={{
           left: dragState.current.x,
           top: dragState.current.y,
-          transform: `translate(-50%, -50%) translate(${dragState.pieceOffset.x}px, ${dragState.pieceOffset.y}px) scale(1.2)`, // Scale up slightly for feedback
+          transform: `translate(-50%, -50%) translate(${dragState.pieceOffset.x}px, ${dragState.pieceOffset.y}px) scale(1.2)`,
         }}
       >
         <BlockPiece piece={piece} cellSize={30} />
       </div>
     );
   };
+
+  // UI Helpers
+  const formatTimer = (secs: number) => {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // Calculate progress relative to previous target
+  // We want the bar to fill from 0 to 100% for the current level gap
+  // Previous Target (start of this level) roughly = targetScore - delta
+  // But since we use simple accumulation, let's just approximate for visual feedback:
+  // Show progress towards the specific Target Number
+  const progressPercent = Math.min(100, (score / targetScore) * 100);
 
   return (
     <div 
@@ -249,19 +318,57 @@ const App: React.FC = () => {
           <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-purple-600/20 rounded-full blur-[100px]" />
       </div>
 
-      {/* Header */}
-      <div className="w-full max-w-md flex justify-between items-center mb-8 z-10">
+      {/* Top HUD: Level Progress & Targets */}
+      <div className="w-full max-w-md flex flex-col gap-2 mb-4 z-10 px-1">
+          <div className="flex justify-between items-center text-white">
+               <div className="flex items-center gap-2">
+                   <div className="bg-blue-600 px-2 py-0.5 rounded text-xs font-bold flex items-center gap-1 shadow-lg">
+                       <Star size={10} className="fill-white" />
+                       LVL {level}
+                   </div>
+                   <div className="flex items-center gap-1 text-slate-400 text-xs font-mono bg-slate-800/50 px-2 py-0.5 rounded-full">
+                       <TimerIcon size={10} />
+                       {formatTimer(currentTime)}
+                   </div>
+               </div>
+
+               <div className="flex items-center gap-2 bg-slate-800/90 px-3 py-1 rounded-full border border-yellow-500/20 shadow-lg">
+                   <Coins size={14} className="text-yellow-400 fill-yellow-400/20" />
+                   <span className="font-bold text-sm">{coins}</span>
+               </div>
+          </div>
+
+          {/* Progress Bar Container */}
+          <div className="relative h-6 w-full bg-slate-800 rounded-full overflow-hidden border border-slate-700 shadow-inner">
+               {/* Bar */}
+               <div 
+                   className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500 ease-out flex items-center justify-end pr-2"
+                   style={{ width: `${progressPercent}%` }}
+               >
+               </div>
+               
+               {/* Text Overlay */}
+               <div className="absolute inset-0 flex items-center justify-center gap-2 text-[10px] font-bold tracking-wider text-white drop-shadow-md">
+                   <span>TARGET</span>
+                   <Target size={10} />
+                   <span>{score} / {targetScore}</span>
+               </div>
+          </div>
+      </div>
+
+      {/* High Score / Current Score Display */}
+      <div className="w-full max-w-md flex justify-between items-center mb-6 z-10 bg-slate-800/40 p-3 rounded-2xl border border-white/5 backdrop-blur-sm">
         <div className="flex flex-col">
-           <span className="text-slate-400 text-sm font-bold tracking-wider">HIGHSCORE</span>
-           <div className="flex items-center gap-2 text-yellow-400">
-             <Trophy size={20} />
-             <span className="text-2xl font-black">{highScore}</span>
+           <span className="text-slate-400 text-[10px] font-bold tracking-wider uppercase">High Score</span>
+           <div className="flex items-center gap-1.5 text-yellow-400">
+             <Trophy size={16} />
+             <span className="text-xl font-black tracking-tight">{highScore}</span>
            </div>
         </div>
         
         <div className="flex flex-col items-end">
-           <span className="text-slate-400 text-sm font-bold tracking-wider">SCORE</span>
-           <span className="text-4xl font-black text-white">{score}</span>
+           <span className="text-slate-400 text-[10px] font-bold tracking-wider uppercase">Score</span>
+           <span className="text-3xl font-black text-white tracking-tight leading-none">{score}</span>
         </div>
       </div>
 
@@ -290,19 +397,42 @@ const App: React.FC = () => {
       {/* Drag Layer */}
       {renderDragLayer()}
 
+      {/* Level Up Modal */}
+      {showLevelUp && (
+        <LevelUpModal 
+          level={level} 
+          baseReward={levelRewards.base}
+          timeBonus={levelRewards.time}
+          timeTaken={levelRewards.taken}
+          onClaim={handleLevelClaim} 
+        />
+      )}
+
       {/* Game Over Modal */}
-      {isGameOver && (
+      {isGameOver && !showLevelUp && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80 backdrop-blur-md animate-pop">
            <div className="bg-slate-800 p-8 rounded-2xl shadow-2xl border border-slate-700 text-center max-w-sm w-full mx-4">
-              <h2 className="text-3xl font-black text-white mb-2">NO MOVES!</h2>
-              <p className="text-slate-400 mb-6">Your blocks have no place to go.</p>
+              <h2 className="text-3xl font-black text-white mb-2">GAME OVER</h2>
+              <p className="text-slate-400 mb-6">No more moves possible.</p>
               
-              <div className="bg-slate-900/50 rounded-xl p-4 mb-8">
+              <div className="bg-slate-900/50 rounded-xl p-4 mb-4">
                  <div className="text-sm text-slate-400 uppercase tracking-widest mb-1">Final Score</div>
                  <div className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
                     {score}
                  </div>
               </div>
+
+               <div className="flex justify-center gap-4 text-sm text-slate-400 mb-6">
+                   <div className="flex flex-col items-center">
+                       <span className="font-bold text-white">LVL {level}</span>
+                       <span className="text-[10px]">REACHED</span>
+                   </div>
+                   <div className="w-[1px] bg-slate-700"></div>
+                   <div className="flex flex-col items-center">
+                       <span className="font-bold text-white">{coins}</span>
+                       <span className="text-[10px]">TOTAL COINS</span>
+                   </div>
+               </div>
 
               <button 
                 onClick={startNewGame}
