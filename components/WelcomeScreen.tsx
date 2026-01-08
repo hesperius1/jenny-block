@@ -42,9 +42,8 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({
         {/* Header */}
         <div className="text-center space-y-2">
             <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-purple-400 to-pink-400 drop-shadow-lg tracking-tighter">
-                BLOCK BLAST
+                JENNY BLOCKS
             </h1>
-            <p className="text-slate-400 text-sm font-medium tracking-widest uppercase">Clone Edition</p>
         </div>
 
         {/* Stats Card */}
