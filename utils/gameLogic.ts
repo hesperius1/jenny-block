@@ -1,8 +1,7 @@
-import { GRID_SIZE } from '../constants';
 import { BlockShape, GridType } from '../types';
 
-export const createEmptyGrid = (): GridType => {
-  return Array(GRID_SIZE).fill(null).map(() => Array(GRID_SIZE).fill(null));
+export const createEmptyGrid = (size: number): GridType => {
+  return Array(size).fill(null).map(() => Array(size).fill(null));
 };
 
 export const canPlacePiece = (
@@ -11,6 +10,7 @@ export const canPlacePiece = (
   row: number,
   col: number
 ): boolean => {
+  const size = grid.length;
   for (let r = 0; r < matrix.length; r++) {
     for (let c = 0; c < matrix[r].length; c++) {
       if (matrix[r][c] === 1) {
@@ -18,7 +18,7 @@ export const canPlacePiece = (
         const gridC = col + c;
 
         // Check boundaries
-        if (gridR < 0 || gridR >= GRID_SIZE || gridC < 0 || gridC >= GRID_SIZE) {
+        if (gridR < 0 || gridR >= size || gridC < 0 || gridC >= size) {
           return false;
         }
 
@@ -50,20 +50,21 @@ export const placePiece = (
 };
 
 export const checkLines = (grid: GridType) => {
+  const size = grid.length;
   const rowsToClear: number[] = [];
   const colsToClear: number[] = [];
 
   // Check rows
-  for (let r = 0; r < GRID_SIZE; r++) {
+  for (let r = 0; r < size; r++) {
     if (grid[r].every((cell) => cell !== null)) {
       rowsToClear.push(r);
     }
   }
 
   // Check cols
-  for (let c = 0; c < GRID_SIZE; c++) {
+  for (let c = 0; c < size; c++) {
     let full = true;
-    for (let r = 0; r < GRID_SIZE; r++) {
+    for (let r = 0; r < size; r++) {
       if (grid[r][c] === null) {
         full = false;
         break;
@@ -78,16 +79,17 @@ export const checkLines = (grid: GridType) => {
 };
 
 export const clearLines = (grid: GridType, rows: number[], cols: number[]): GridType => {
+  const size = grid.length;
   const newGrid = grid.map((r) => [...r]);
 
   rows.forEach((r) => {
-    for (let c = 0; c < GRID_SIZE; c++) {
+    for (let c = 0; c < size; c++) {
       newGrid[r][c] = null;
     }
   });
 
   cols.forEach((c) => {
-    for (let r = 0; r < GRID_SIZE; r++) {
+    for (let r = 0; r < size; r++) {
       newGrid[r][c] = null;
     }
   });
@@ -96,14 +98,15 @@ export const clearLines = (grid: GridType, rows: number[], cols: number[]): Grid
 };
 
 export const checkGameOver = (grid: GridType, availablePieces: (BlockShape | null)[]): boolean => {
+  const size = grid.length;
   // If no pieces are left (rare state before refresh), it's not game over
   const activePieces = availablePieces.filter((p) => p !== null) as BlockShape[];
   if (activePieces.length === 0) return false;
 
   // Check if ANY piece can fit ANYWHERE
   for (const piece of activePieces) {
-    for (let r = 0; r < GRID_SIZE; r++) {
-      for (let c = 0; c < GRID_SIZE; c++) {
+    for (let r = 0; r < size; r++) {
+      for (let c = 0; c < size; c++) {
         if (canPlacePiece(grid, piece.matrix, r, c)) {
           return false; // Found a valid move
         }
