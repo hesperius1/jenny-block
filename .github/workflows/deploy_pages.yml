@@ -1,6 +1,3 @@
-# Build and deploy to GitHub Pages from a private repo (CRA or Vite).
-# - Automatically detects build output folder: ./build (CRA) or ./dist (Vite)
-# - Supports manual runs via workflow_dispatch
 name: Build and deploy to GitHub Pages
 
 on:
@@ -44,6 +41,7 @@ jobs:
         shell: bash
 
       - name: Upload artifact for GitHub Pages
+        # This is the Pages-specific uploader; it should not reference upload-artifact@v3 directly.
         uses: actions/upload-pages-artifact@v1
         with:
           path: ${{ steps.set-publish-dir.outputs.publish_dir }}
